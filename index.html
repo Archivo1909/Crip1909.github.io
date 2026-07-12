@@ -1,0 +1,689 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Criptografía · A1Z27 · César · Vigenère</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#050505;
+    --card:#0c0c0e;
+    --card-2:#111114;
+    --line:rgba(255,255,255,0.08);
+    --line-2:rgba(255,255,255,0.14);
+    --text:#f2f2f2;
+    --muted:#8f8f96;
+    --muted-2:#5f5f66;
+
+    --violet:#a78bfa;
+    --violet-dim:rgba(167,139,250,0.12);
+    --emerald:#34d399;
+    --emerald-dim:rgba(52,211,153,0.12);
+    --amber:#fbbf7a;
+    --amber-dim:rgba(251,191,122,0.12);
+
+    --ease:cubic-bezier(0.32,0.72,0,1);
+  }
+
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:'Space Grotesk', -apple-system, 'Segoe UI', sans-serif;
+    min-height:100dvh;
+    overflow-x:hidden;
+    -webkit-font-smoothing:antialiased;
+  }
+  h1,h2,h3{font-family:'Space Grotesk', sans-serif; margin:0; letter-spacing:-0.02em;}
+  p{margin:0;}
+  button{font-family:inherit; cursor:pointer;}
+  textarea, input{font-family:inherit;}
+
+  /* ---------- Ambient background ---------- */
+  #bgGlow{
+    position:fixed; inset:0; z-index:0; pointer-events:none; overflow:hidden;
+  }
+  #bgGlow::before, #bgGlow::after{
+    content:''; position:absolute; border-radius:50%;
+    filter:blur(90px); opacity:0.16;
+  }
+  #bgGlow::before{
+    width:60vw; height:60vw; top:-20vw; left:-15vw;
+    background:radial-gradient(circle, var(--violet), transparent 70%);
+    animation:drift1 26s ease-in-out infinite alternate;
+  }
+  #bgGlow::after{
+    width:55vw; height:55vw; bottom:-20vw; right:-15vw;
+    background:radial-gradient(circle, var(--emerald), transparent 70%);
+    animation:drift2 30s ease-in-out infinite alternate;
+  }
+  @keyframes drift1{ from{transform:translate(0,0);} to{transform:translate(6vw,8vw);} }
+  @keyframes drift2{ from{transform:translate(0,0);} to{transform:translate(-6vw,-6vw);} }
+
+  #grain{
+    position:fixed; inset:0; z-index:1; pointer-events:none; opacity:0.035; mix-blend-mode:overlay;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  /* ---------- Layout ---------- */
+  #app{position:relative; z-index:2; max-width:480px; margin:0 auto; min-height:100dvh;}
+
+  .screen{
+    display:none;
+    min-height:100dvh;
+    padding:calc(28px + env(safe-area-inset-top)) 20px calc(40px + env(safe-area-inset-bottom));
+    flex-direction:column;
+  }
+  .screen.active{ display:flex; animation:screenIn .55s var(--ease) both; }
+  @keyframes screenIn{
+    from{opacity:0; transform:translateY(14px);}
+    to{opacity:1; transform:translateY(0);}
+  }
+
+  /* ---------- Home ---------- */
+  .eyebrow{
+    display:inline-flex; align-items:center; gap:6px;
+    padding:6px 12px; border-radius:999px;
+    background:var(--card); border:1px solid var(--line);
+    font-size:10px; letter-spacing:0.18em; text-transform:uppercase; color:var(--muted);
+    width:max-content;
+  }
+  .eyebrow span.dot{width:5px;height:5px;border-radius:50%;background:var(--emerald); box-shadow:0 0 6px var(--emerald);}
+
+  #home h1{ font-size:34px; font-weight:600; margin-top:18px; line-height:1.08;}
+  #home .subtitle{ margin-top:12px; color:var(--muted); font-size:14.5px; line-height:1.55; max-width:38ch;}
+
+  .cards{ margin-top:32px; display:flex; flex-direction:column; gap:14px;}
+
+  .cipher-card{
+    position:relative;
+    padding:2px;
+    border-radius:22px;
+    background:rgba(255,255,255,0.05);
+    border:1px solid var(--line);
+    text-align:left;
+    opacity:0; transform:translateY(16px);
+    animation:cardIn .7s var(--ease) forwards;
+  }
+  .cipher-card:nth-child(1){animation-delay:.05s;}
+  .cipher-card:nth-child(2){animation-delay:.15s;}
+  .cipher-card:nth-child(3){animation-delay:.25s;}
+  @keyframes cardIn{ to{opacity:1; transform:translateY(0);} }
+
+  .cipher-card .inner{
+    background:var(--card);
+    border-radius:20px;
+    padding:20px;
+    display:flex; align-items:center; gap:16px;
+    transition:transform .45s var(--ease), background .3s var(--ease);
+    box-shadow:inset 0 1px 1px rgba(255,255,255,0.04);
+  }
+  .cipher-card:active .inner{ transform:scale(0.98); }
+
+  .cc-icon{
+    width:46px; height:46px; min-width:46px; border-radius:14px;
+    display:flex; align-items:center; justify-content:center;
+    border:1px solid var(--line-2);
+  }
+  .cc-icon svg{width:20px; height:20px;}
+
+  .cc-body{flex:1; min-width:0;}
+  .cc-body h3{font-size:16.5px; font-weight:600; margin-bottom:4px;}
+  .cc-body p{font-size:12.5px; color:var(--muted); line-height:1.5;}
+
+  .cc-arrow{
+    width:30px; height:30px; min-width:30px; border-radius:50%;
+    background:rgba(255,255,255,0.04);
+    display:flex; align-items:center; justify-content:center;
+    transition:transform .4s var(--ease), background .3s var(--ease);
+  }
+  .cipher-card:active .cc-arrow{ transform:translateX(2px); background:rgba(255,255,255,0.08); }
+  .cc-arrow svg{width:14px;height:14px;}
+
+  .a1z27-icon{background:var(--violet-dim); color:var(--violet);}
+  .cesar-icon{background:var(--emerald-dim); color:var(--emerald);}
+  .vig-icon{background:var(--amber-dim); color:var(--amber);}
+
+  .home-foot{ margin-top:auto; padding-top:36px; color:var(--muted-2); font-size:11px; text-align:center; letter-spacing:0.04em;}
+
+  /* ---------- Cipher screen shared ---------- */
+  .top-row{ display:flex; align-items:center; gap:14px; }
+  .back-btn{
+    width:38px; height:38px; border-radius:50%;
+    background:var(--card); border:1px solid var(--line);
+    display:flex; align-items:center; justify-content:center;
+    color:var(--text); flex-shrink:0;
+    transition:transform .35s var(--ease), background .3s var(--ease);
+  }
+  .back-btn:active{ transform:scale(0.92) translateX(-1px); background:var(--card-2); }
+  .back-btn svg{width:16px;height:16px;}
+
+  .screen-title{font-size:20px; font-weight:600;}
+  .screen-tag{font-size:10.5px; color:var(--muted); letter-spacing:0.08em; text-transform:uppercase; margin-top:1px;}
+
+  .desc-card{
+    margin-top:22px; padding:16px 18px; border-radius:16px;
+    background:var(--card); border:1px solid var(--line);
+    font-size:13px; line-height:1.6; color:var(--muted);
+  }
+  .desc-card b{color:var(--text); font-weight:600;}
+
+  .segmented{
+    margin-top:24px; display:flex; background:var(--card); border:1px solid var(--line);
+    border-radius:14px; padding:4px; gap:4px;
+  }
+  .segmented button{
+    flex:1; border:none; background:transparent; color:var(--muted);
+    padding:11px 0; border-radius:10px; font-size:13.5px; font-weight:600;
+    transition:background .35s var(--ease), color .3s var(--ease);
+  }
+  .segmented button.active{ background:var(--seg-color, var(--violet)); color:#0a0a0a; }
+
+  .field-label{
+    margin-top:22px; font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:var(--muted-2);
+  }
+
+  .io-shell{
+    margin-top:10px; padding:1.5px; border-radius:18px;
+    background:rgba(255,255,255,0.05); border:1px solid var(--line);
+  }
+  textarea{
+    width:100%; min-height:110px; resize:vertical;
+    background:var(--card); color:var(--text);
+    border:none; border-radius:16.5px; padding:16px;
+    font-size:14.5px; line-height:1.55; outline:none;
+  }
+  textarea::placeholder{color:var(--muted-2);}
+  textarea:focus{ background:var(--card-2); }
+
+  .output-box{
+    width:100%; min-height:110px;
+    background:var(--card); color:var(--accent-text, var(--violet));
+    border-radius:16.5px; padding:16px;
+    font-family:'JetBrains Mono', monospace; font-size:13.5px; line-height:1.7;
+    word-break:break-word; white-space:pre-wrap;
+  }
+  .output-box.empty{ color:var(--muted-2); font-family:'Space Grotesk', sans-serif; font-size:13.5px;}
+
+  .row-inline{ display:flex; align-items:center; gap:12px; margin-top:10px; }
+  .num-input{
+    width:84px; background:var(--card); border:1px solid var(--line); color:var(--text);
+    border-radius:12px; padding:10px 12px; font-size:14px; text-align:center; outline:none;
+  }
+  .num-input:focus{border-color:var(--line-2);}
+  input[type="range"]{
+    -webkit-appearance:none; flex:1; height:4px; border-radius:2px;
+    background:var(--line-2); outline:none;
+  }
+  input[type="range"]::-webkit-slider-thumb{
+    -webkit-appearance:none; width:18px; height:18px; border-radius:50%;
+    background:var(--seg-color, var(--emerald)); cursor:pointer; border:3px solid #0a0a0a;
+  }
+  input[type="range"]::-moz-range-thumb{
+    width:18px; height:18px; border-radius:50%; border:3px solid #0a0a0a;
+    background:var(--seg-color, var(--emerald)); cursor:pointer;
+  }
+
+  .text-input{
+    width:100%; background:var(--card); border:1px solid var(--line); color:var(--text);
+    border-radius:14px; padding:13px 16px; font-size:14.5px; outline:none;
+    letter-spacing:0.02em;
+  }
+  .text-input:focus{border-color:var(--line-2); background:var(--card-2);}
+
+  .actions{ margin-top:20px; display:flex; gap:10px; }
+  .btn{
+    border:none; border-radius:999px; padding:13px 20px; font-size:13.5px; font-weight:600;
+    display:flex; align-items:center; justify-content:center; gap:8px;
+    transition:transform .3s var(--ease), background .3s var(--ease);
+  }
+  .btn:active{ transform:scale(0.97); }
+  .btn-primary{ background:var(--seg-color, var(--violet)); color:#0a0a0a; flex:1; }
+  .btn-ghost{ background:var(--card); border:1px solid var(--line); color:var(--muted); }
+  .btn-icon-wrap{
+    width:22px; height:22px; border-radius:50%; background:rgba(0,0,0,0.15);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .btn-icon-wrap svg{width:11px;height:11px;}
+
+  .hint{ margin-top:14px; font-size:11.5px; color:var(--muted-2); line-height:1.5; }
+  .toast{
+    position:fixed; left:50%; bottom:28px; transform:translate(-50%, 12px);
+    background:var(--card-2); border:1px solid var(--line-2); color:var(--text);
+    padding:10px 18px; border-radius:999px; font-size:12.5px;
+    opacity:0; pointer-events:none; transition:all .4s var(--ease); z-index:50;
+  }
+  .toast.show{ opacity:1; transform:translate(-50%, 0); }
+
+  /* ---------- Intro modal ---------- */
+  #introOverlay{
+    position:fixed; inset:0; z-index:100;
+    background:rgba(3,3,4,0.72); backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
+    display:flex; align-items:flex-end; justify-content:center;
+    opacity:0; pointer-events:none; transition:opacity .4s var(--ease);
+    padding:0 14px calc(14px + env(safe-area-inset-bottom));
+  }
+  #introOverlay.show{ opacity:1; pointer-events:auto; }
+  .modal-card{
+    width:100%; max-width:440px; padding:1.5px; border-radius:26px;
+    background:linear-gradient(160deg, rgba(167,139,250,0.35), rgba(52,211,153,0.2));
+    transform:translateY(30px); transition:transform .5s var(--ease);
+  }
+  #introOverlay.show .modal-card{ transform:translateY(0); }
+  .modal-inner{
+    background:#0b0b0d; border-radius:24.5px; padding:26px 24px calc(24px + env(safe-area-inset-bottom));
+  }
+  .modal-inner h2{font-size:19px; font-weight:600; margin-bottom:10px;}
+  .modal-inner p{font-size:13.5px; line-height:1.65; color:var(--muted); margin-bottom:6px;}
+  .modal-list{ margin:16px 0 20px; display:flex; flex-direction:column; gap:8px; }
+  .modal-list div{ display:flex; gap:10px; align-items:flex-start; font-size:12.5px; color:var(--muted); line-height:1.5;}
+  .modal-list .tick{ width:6px;height:6px;border-radius:50%; margin-top:6px; flex-shrink:0;}
+  #introOverlay .btn{width:100%; padding:14px 0; margin-top:4px;}
+
+  @media (min-width:520px){
+    body{ background:radial-gradient(circle at 50% 0%, #0a0a0d, #050505 60%); }
+  }
+</style>
+</head>
+<body>
+
+<div id="bgGlow"></div>
+<div id="grain"></div>
+
+<!-- INTRO MODAL -->
+<div id="introOverlay">
+  <div class="modal-card">
+    <div class="modal-inner">
+      <div class="eyebrow"><span class="dot"></span>BIENVENIDO</div>
+      <h2 style="margin-top:14px;">Tu caja de herramientas de cifrado</h2>
+      <p>Esta página reúne tres métodos clásicos de criptografía para que cifres y descifres texto directamente desde tu teléfono, sin conexión a servidores externos.</p>
+      <div class="modal-list">
+        <div><span class="tick" style="background:var(--violet)"></span> <span><b style="color:var(--text)">A1Z27</b> — convierte letras en números usando el alfabeto español completo.</span></div>
+        <div><span class="tick" style="background:var(--emerald)"></span> <span><b style="color:var(--text)">César</b> — desplaza cada letra con un valor de 1 a 100.</span></div>
+        <div><span class="tick" style="background:var(--amber)"></span> <span><b style="color:var(--text)">Vigenère</b> — usa una palabra clave para un cifrado más avanzado.</span></div>
+      </div>
+      <button class="btn btn-primary" onclick="closeIntro()">Comenzar</button>
+    </div>
+  </div>
+</div>
+
+<div id="app">
+
+  <!-- HOME -->
+  <section class="screen active" id="home">
+    <div class="eyebrow"><span class="dot"></span>HERRAMIENTA DE CIFRADO</div>
+    <h1>Criptografía clásica</h1>
+    <p class="subtitle">Elige un método para cifrar o descifrar tu mensaje. Todo el cálculo ocurre en tu propio dispositivo.</p>
+
+    <div class="cards">
+      <button class="cipher-card" onclick="showScreen('a1z27')">
+        <div class="inner">
+          <div class="cc-icon a1z27-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 17V7l4 10V7"/><path d="M13 17h5l-5-7h5"/></svg>
+          </div>
+          <div class="cc-body">
+            <h3>A1Z27</h3>
+            <p>Cada letra se transforma en su número de posición dentro del alfabeto español (A–Z y Ñ, del 1 al 27).</p>
+          </div>
+          <div class="cc-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></div>
+        </div>
+      </button>
+
+      <button class="cipher-card" onclick="showScreen('cesar')">
+        <div class="inner">
+          <div class="cc-icon cesar-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h18"/><path d="M14 6l6 6-6 6"/></svg>
+          </div>
+          <div class="cc-body">
+            <h3>César</h3>
+            <p>Desplaza cada letra un número fijo de posiciones en el alfabeto. Admite desplazamientos del 1 al 100.</p>
+          </div>
+          <div class="cc-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></div>
+        </div>
+      </button>
+
+      <button class="cipher-card" onclick="showScreen('vigenere')">
+        <div class="inner">
+          <div class="cc-icon vig-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="10" width="16" height="9" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>
+          </div>
+          <div class="cc-body">
+            <h3>Vigenère</h3>
+            <p>Cifrado polialfabético: una palabra clave define un desplazamiento distinto para cada letra del mensaje.</p>
+          </div>
+          <div class="cc-arrow"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg></div>
+        </div>
+      </button>
+    </div>
+
+    <div class="home-foot">Todo el procesamiento es local · nada se envía a internet</div>
+  </section>
+
+  <!-- A1Z27 -->
+  <section class="screen" id="a1z27" style="--seg-color:var(--violet); --accent-text:var(--violet);">
+    <div class="top-row">
+      <button class="back-btn" onclick="showScreen('home')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
+      </button>
+      <div>
+        <div class="screen-title">A1Z27</div>
+        <div class="screen-tag">Letra ↔ número</div>
+      </div>
+    </div>
+
+    <div class="desc-card">
+      <b>¿Cómo funciona?</b> A cada letra del alfabeto español —incluyendo la Ñ— se le asigna un número según su posición: A=1, B=2 … N=14, Ñ=15, O=16 … Z=27. Al cifrar, los números se separan con guiones y las palabras con «/». Al descifrar, se hace el proceso inverso.
+    </div>
+
+    <div class="segmented" id="a1z27-seg">
+      <button class="active" data-mode="cifrar" onclick="setMode('a1z27','cifrar')">Cifrar</button>
+      <button data-mode="descifrar" onclick="setMode('a1z27','descifrar')">Descifrar</button>
+    </div>
+
+    <div class="field-label" id="a1z27-inLabel">Texto a cifrar</div>
+    <div class="io-shell">
+      <textarea id="a1z27-input" placeholder="Escribe tu mensaje aquí…"></textarea>
+    </div>
+
+    <div class="field-label">Resultado</div>
+    <div class="io-shell">
+      <div class="output-box empty" id="a1z27-output">Aparecerá aquí…</div>
+    </div>
+
+    <div class="actions">
+      <button class="btn btn-primary" onclick="copyOutput('a1z27')">
+        <span class="btn-icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span>
+        Copiar resultado
+      </button>
+      <button class="btn btn-ghost" onclick="clearScreen('a1z27')">Limpiar</button>
+    </div>
+    <div class="hint">Ejemplo: HOLA → 8-16-12-1</div>
+  </section>
+
+  <!-- CÉSAR -->
+  <section class="screen" id="cesar" style="--seg-color:var(--emerald); --accent-text:var(--emerald);">
+    <div class="top-row">
+      <button class="back-btn" onclick="showScreen('home')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
+      </button>
+      <div>
+        <div class="screen-title">César</div>
+        <div class="screen-tag">Desplazamiento 1–100</div>
+      </div>
+    </div>
+
+    <div class="desc-card">
+      <b>¿Cómo funciona?</b> Cada letra se reemplaza por otra que está un número fijo de posiciones más adelante en el alfabeto (el «desplazamiento»). Puedes usar cualquier valor entre 1 y 100; internamente se ajusta al tamaño del alfabeto español de 27 letras.
+    </div>
+
+    <div class="segmented" id="cesar-seg">
+      <button class="active" data-mode="cifrar" onclick="setMode('cesar','cifrar')">Cifrar</button>
+      <button data-mode="descifrar" onclick="setMode('cesar','descifrar')">Descifrar</button>
+    </div>
+
+    <div class="field-label">Desplazamiento</div>
+    <div class="row-inline">
+      <input type="range" id="cesar-range" min="1" max="100" value="3">
+      <input type="number" class="num-input" id="cesar-num" min="1" max="100" value="3">
+    </div>
+
+    <div class="field-label" id="cesar-inLabel">Texto a cifrar</div>
+    <div class="io-shell">
+      <textarea id="cesar-input" placeholder="Escribe tu mensaje aquí…"></textarea>
+    </div>
+
+    <div class="field-label">Resultado</div>
+    <div class="io-shell">
+      <div class="output-box empty" id="cesar-output">Aparecerá aquí…</div>
+    </div>
+
+    <div class="actions">
+      <button class="btn btn-primary" onclick="copyOutput('cesar')">
+        <span class="btn-icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span>
+        Copiar resultado
+      </button>
+      <button class="btn btn-ghost" onclick="clearScreen('cesar')">Limpiar</button>
+    </div>
+    <div class="hint">Ejemplo con desplazamiento 3: HOLA → KRÑD</div>
+  </section>
+
+  <!-- VIGENÈRE -->
+  <section class="screen" id="vigenere" style="--seg-color:var(--amber); --accent-text:var(--amber);">
+    <div class="top-row">
+      <button class="back-btn" onclick="showScreen('home')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
+      </button>
+      <div>
+        <div class="screen-title">Vigenère</div>
+        <div class="screen-tag">Cifrado con palabra clave</div>
+      </div>
+    </div>
+
+    <div class="desc-card">
+      <b>¿Cómo funciona?</b> Se elige una palabra clave que se repite letra por letra a lo largo del mensaje. Cada letra del clave indica cuántas posiciones se desplaza la letra correspondiente del texto, generando un cifrado mucho más difícil de romper que el de César.
+    </div>
+
+    <div class="segmented" id="vigenere-seg">
+      <button class="active" data-mode="cifrar" onclick="setMode('vigenere','cifrar')">Cifrar</button>
+      <button data-mode="descifrar" onclick="setMode('vigenere','descifrar')">Descifrar</button>
+    </div>
+
+    <div class="field-label">Palabra clave</div>
+    <input class="text-input" id="vigenere-key" placeholder="Ej. LUNA" autocapitalize="characters">
+
+    <div class="field-label" id="vigenere-inLabel">Texto a cifrar</div>
+    <div class="io-shell">
+      <textarea id="vigenere-input" placeholder="Escribe tu mensaje aquí…"></textarea>
+    </div>
+
+    <div class="field-label">Resultado</div>
+    <div class="io-shell">
+      <div class="output-box empty" id="vigenere-output">Aparecerá aquí…</div>
+    </div>
+
+    <div class="actions">
+      <button class="btn btn-primary" onclick="copyOutput('vigenere')">
+        <span class="btn-icon-wrap"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></span>
+        Copiar resultado
+      </button>
+      <button class="btn btn-ghost" onclick="clearScreen('vigenere')">Limpiar</button>
+    </div>
+    <div class="hint">Ejemplo con clave «LUNA»: HOLA → RJXA</div>
+  </section>
+
+</div>
+
+<div class="toast" id="toast">Copiado al portapapeles</div>
+
+<script>
+  const ALPHABET = "ABCDEFGHIJKLMNÑOPQRSTUVWXYZ";
+  const ALEN = ALPHABET.length; // 27
+
+  const state = {
+    a1z27:{ mode:'cifrar' },
+    cesar:{ mode:'cifrar' },
+    vigenere:{ mode:'cifrar' }
+  };
+
+  /* ---------- Navegación ---------- */
+  function showScreen(id){
+    document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+    const el = document.getElementById(id);
+    el.classList.add('active');
+    el.scrollTop = 0;
+    window.scrollTo(0,0);
+  }
+
+  /* ---------- Intro modal (solo al entrar) ---------- */
+  window.addEventListener('load', ()=>{
+    setTimeout(()=>{
+      document.getElementById('introOverlay').classList.add('show');
+    }, 350);
+  });
+  function closeIntro(){
+    document.getElementById('introOverlay').classList.remove('show');
+  }
+
+  /* ---------- Modo cifrar/descifrar ---------- */
+  function setMode(screen, mode){
+    state[screen].mode = mode;
+    document.querySelectorAll('#'+screen+'-seg button').forEach(b=>{
+      b.classList.toggle('active', b.dataset.mode === mode);
+    });
+    const label = document.getElementById(screen+'-inLabel');
+    if(label) label.textContent = mode === 'cifrar' ? 'Texto a cifrar' : 'Texto a descifrar';
+    process(screen);
+  }
+
+  /* ---------- Cifrados ---------- */
+  function a1z27Process(text, mode){
+    text = text.toUpperCase();
+    if(mode === 'cifrar'){
+      const parts = [];
+      for(const ch of text){
+        if(ch === ' '){ parts.push('/'); continue; }
+        const idx = ALPHABET.indexOf(ch);
+        if(idx !== -1){ parts.push(String(idx+1)); }
+        else if(ch.trim() !== ''){ parts.push(ch); }
+      }
+      return parts.join('-');
+    } else {
+      const tokens = text.split('-').map(t=>t.trim()).filter(t=>t.length);
+      let out = '';
+      for(const t of tokens){
+        if(t === '/'){ out += ' '; }
+        else if(/^\d+$/.test(t)){
+          const n = parseInt(t,10);
+          out += (n>=1 && n<=ALEN) ? ALPHABET[n-1] : '?';
+        } else out += t;
+      }
+      return out;
+    }
+  }
+
+  function cesarProcess(text, shift, mode){
+    let n = ((parseInt(shift,10) || 0) % ALEN + ALEN) % ALEN;
+    if(mode === 'descifrar') n = (ALEN - n) % ALEN;
+    let out = '';
+    for(const ch of text){
+      const upper = ch.toUpperCase();
+      const idx = ALPHABET.indexOf(upper);
+      if(idx === -1){ out += ch; continue; }
+      const newCh = ALPHABET[(idx + n) % ALEN];
+      out += (ch === upper) ? newCh : newCh.toLowerCase();
+    }
+    return out;
+  }
+
+  function vigenereProcess(text, keyword, mode){
+    const key = keyword.toUpperCase().split('').filter(c => ALPHABET.includes(c));
+    if(!key.length) return '';
+    let out = '', ki = 0;
+    for(const ch of text){
+      const upper = ch.toUpperCase();
+      const idx = ALPHABET.indexOf(upper);
+      if(idx === -1){ out += ch; continue; }
+      const kIdx = ALPHABET.indexOf(key[ki % key.length]);
+      const newIdx = mode === 'cifrar'
+        ? (idx + kIdx) % ALEN
+        : ((idx - kIdx) % ALEN + ALEN) % ALEN;
+      const newCh = ALPHABET[newIdx];
+      out += (ch === upper) ? newCh : newCh.toLowerCase();
+      ki++;
+    }
+    return out;
+  }
+
+  /* ---------- Procesamiento por pantalla ---------- */
+  function setOutput(screen, text){
+    const box = document.getElementById(screen+'-output');
+    if(text && text.length){
+      box.textContent = text;
+      box.classList.remove('empty');
+    } else {
+      box.textContent = 'Aparecerá aquí…';
+      box.classList.add('empty');
+    }
+  }
+
+  function process(screen){
+    const mode = state[screen].mode;
+    const input = document.getElementById(screen+'-input').value;
+
+    if(!input){ setOutput(screen, ''); return; }
+
+    let result = '';
+    if(screen === 'a1z27'){
+      result = a1z27Process(input, mode);
+    } else if(screen === 'cesar'){
+      const shift = document.getElementById('cesar-num').value;
+      result = cesarProcess(input, shift, mode);
+    } else if(screen === 'vigenere'){
+      const key = document.getElementById('vigenere-key').value;
+      result = key.trim() ? vigenereProcess(input, key, mode) : '';
+      if(!key.trim()){
+        setOutput(screen, '');
+        const box = document.getElementById('vigenere-output');
+        box.textContent = 'Escribe una palabra clave para continuar…';
+        box.classList.add('empty');
+        return;
+      }
+    }
+    setOutput(screen, result);
+  }
+
+  function clearScreen(screen){
+    document.getElementById(screen+'-input').value = '';
+    if(screen === 'vigenere') document.getElementById('vigenere-key').value = '';
+    setOutput(screen, '');
+  }
+
+  function copyOutput(screen){
+    const box = document.getElementById(screen+'-output');
+    if(box.classList.contains('empty')) return;
+    const text = box.textContent;
+    const doToast = ()=>{
+      const t = document.getElementById('toast');
+      t.classList.add('show');
+      clearTimeout(window.__toastTimer);
+      window.__toastTimer = setTimeout(()=>t.classList.remove('show'), 1600);
+    };
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(doToast).catch(()=>fallbackCopy(text, doToast));
+    } else {
+      fallbackCopy(text, doToast);
+    }
+  }
+  function fallbackCopy(text, cb){
+    const ta = document.createElement('textarea');
+    ta.value = text; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try{ document.execCommand('copy'); }catch(e){}
+    document.body.removeChild(ta);
+    cb();
+  }
+
+  /* ---------- Listeners ---------- */
+  document.getElementById('a1z27-input').addEventListener('input', ()=>process('a1z27'));
+
+  document.getElementById('cesar-input').addEventListener('input', ()=>process('cesar'));
+  const cesarRange = document.getElementById('cesar-range');
+  const cesarNum = document.getElementById('cesar-num');
+  cesarRange.addEventListener('input', ()=>{ cesarNum.value = cesarRange.value; process('cesar'); });
+  cesarNum.addEventListener('input', ()=>{
+    let v = parseInt(cesarNum.value,10);
+    if(isNaN(v)) v = 1;
+    v = Math.min(100, Math.max(1, v));
+    cesarRange.value = v;
+    process('cesar');
+  });
+
+  document.getElementById('vigenere-input').addEventListener('input', ()=>process('vigenere'));
+  document.getElementById('vigenere-key').addEventListener('input', ()=>process('vigenere'));
+</script>
+</body>
+</html>
